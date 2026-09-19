@@ -29,7 +29,7 @@ import tkinter as tk
 # 打包成 exe 后 __file__ 指向 PyInstaller 的临时解包目录，配置和下载目录得跟着 exe 走
 APP_DIR = (os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False)
            else os.path.dirname(os.path.abspath(__file__)))
-VERSION = "1.0.7"
+VERSION = "1.0.8"
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 DEFAULT_SAVE_DIR = os.path.join(APP_DIR, "beatmaps")
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
@@ -100,9 +100,15 @@ def _json(url, data=None, headers=None, timeout=30):
 
 
 def sayobot_body(keyword, sel, limit=25, offset=0):
-    """界面勾选状态 -> Sayobot beatmaplist 请求体。某组一个都没勾=该组不过滤。"""
-    body = {"cmd": "beatmaplist", "limit": limit, "offset": offset,
-            "type": "search", "keyword": keyword}
+    """界面勾选状态 -> Sayobot beatmaplist 请求体。某组一个都没勾=该组不过滤。
+
+    关键词留空就走 type=hot 的热门榜（服务端自己排的，会忽略这边的筛选参数）。
+    """
+    body = {"cmd": "beatmaplist", "limit": limit, "offset": offset}
+    if keyword:
+        body["type"], body["keyword"] = "search", keyword
+    else:
+        body["type"] = "hot"
     for key in ("mode", "class", "subtype", "genre", "language"):
         bits = sel.get(key) or []
         if bits:
@@ -456,16 +462,12 @@ class App(tk.Tk):
     # -------------------------------------------------- 搜索
     def search(self):
         keyword = self.keyword.get().strip()
-        if not keyword:
-            messagebox.showwarning("提示", "请先输入歌曲名或关键词")
-            self._prefill()
-            return
         if self.busy:
             return
         self.busy = True
         self.offset = 0
         self.clear_results()
-        self._set_status("搜索中…")
+        self._set_status("正在取热门谱面…" if not keyword else "搜索中…")
         self.cfg["save_dir"] = self.save_dir.get()
         save_config(self.cfg)
         thread = threading.Thread(target=self._search_worker,
@@ -476,8 +478,6 @@ class App(tk.Tk):
         if self.busy:
             return
         keyword = self.keyword.get().strip()
-        if not keyword:
-            return
         self.busy = True
         self._set_status("加载更多…")
         thread = threading.Thread(target=self._search_worker,
@@ -626,6 +626,8 @@ def selftest():
     assert body == {"cmd": "beatmaplist", "limit": 5, "offset": 10, "type": "search",
                     "keyword": "xi", "mode": 9, "class": 3, "language": 8,
                     "stars": [6.0, 7.0]}, body
+    assert sayobot_body("", {}, limit=25) == {"cmd": "beatmaplist", "limit": 25,
+                                             "offset": 0, "type": "hot"}
 
     row = sayobot_row({"sid": 42, "modes": 5, "approved": 4, "title": "t", "artist": "a",
                        "creator": "c"})
