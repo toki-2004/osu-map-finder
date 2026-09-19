@@ -29,7 +29,7 @@ import tkinter as tk
 # 打包成 exe 后 __file__ 指向 PyInstaller 的临时解包目录，配置和下载目录得跟着 exe 走
 APP_DIR = (os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False)
            else os.path.dirname(os.path.abspath(__file__)))
-VERSION = "1.0.8"
+VERSION = "1.0.9"
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 DEFAULT_SAVE_DIR = os.path.join(APP_DIR, "beatmaps")
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
@@ -308,11 +308,12 @@ class App(tk.Tk):
         self.rows = []
         self.sort_key = None
         self.sort_desc = False
+        self.gen = 0
         self.busy = False
         self.offset = 0
         self._build()
         self.after(80, self._drain)
-        self.after(300, self._prefill)
+        self.after(300, lambda: self._prefill(if_empty=True))
 
     # -------------------------------------------------- 界面
     def _build(self):
@@ -442,19 +443,21 @@ class App(tk.Tk):
         return sel
 
     # -------------------------------------------------- 当前播放预填
-    def _prefill(self):
+    def _prefill(self, if_empty=False):
         self._set_status("正在读取当前播放…")
 
         def work():
             track = now_playing()
 
             def apply():
-                if track:
+                if not track:
+                    self._set_status("没检测到正在播放的媒体，手动输入即可")
+                elif if_empty and self.keyword.get().strip():
+                    self._set_status("就绪")          # 用户自己敲了关键词，别覆盖
+                else:
                     self.keyword.set(track["title"])
                     self._set_status("已填入：%s - %s（%s）"
                                      % (track["artist"], track["title"], track["app"]))
-                else:
-                    self._set_status("没检测到正在播放的媒体，手动输入即可")
             self.post(apply)
 
         threading.Thread(target=work, daemon=True).start()
@@ -462,8 +465,7 @@ class App(tk.Tk):
     # -------------------------------------------------- 搜索
     def search(self):
         keyword = self.keyword.get().strip()
-        if self.busy:
-            return
+        self.gen += 1                 # 新一轮：之前还在跑的那次搜索结果统统作废
         self.busy = True
         self.offset = 0
         self.clear_results()
@@ -471,7 +473,7 @@ class App(tk.Tk):
         self.cfg["save_dir"] = self.save_dir.get()
         save_config(self.cfg)
         thread = threading.Thread(target=self._search_worker,
-                                  args=(keyword, self.filters_state()), daemon=True)
+                                  args=(keyword, self.filters_state(), 0, self.gen), daemon=True)
         thread.start()
 
     def load_more(self):
@@ -481,16 +483,22 @@ class App(tk.Tk):
         self.busy = True
         self._set_status("加载更多…")
         thread = threading.Thread(target=self._search_worker,
-                                  args=(keyword, self.filters_state(), self.offset), daemon=True)
+                                  args=(keyword, self.filters_state(), self.offset, self.gen),
+                                  daemon=True)
         thread.start()
 
-    def _search_worker(self, keyword, sel, offset=0):
+    def _search_worker(self, keyword, sel, offset=0, gen=None):
+        stale = lambda: gen is not None and gen != self.gen
         try:
             rows = sayobot_search(keyword, sel, 25, offset)
         except Exception as exc:
+            if stale():
+                return
             self.busy = False
             self.post(lambda: self._set_status("搜索失败：%s" % exc))
             self.post(lambda: self._show_empty("搜索失败：%s" % exc))
+            return
+        if stale():
             return
         if not rows:
             self.busy = False
@@ -503,6 +511,8 @@ class App(tk.Tk):
         with ThreadPoolExecutor(max_workers=8) as pool:
             details = pool.map(lambda row: sayobot_detail(row["sid"]), rows)
             for row, detail in zip(rows, details):
+                if stale():
+                    return
                 row.update(detail or {})
                 self.post(lambda row=row: self.fill(row))
         self.busy = False
