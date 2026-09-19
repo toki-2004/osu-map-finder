@@ -29,7 +29,7 @@ import tkinter as tk
 # 打包成 exe 后 __file__ 指向 PyInstaller 的临时解包目录，配置和下载目录得跟着 exe 走
 APP_DIR = (os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False)
            else os.path.dirname(os.path.abspath(__file__)))
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 DEFAULT_SAVE_DIR = os.path.join(APP_DIR, "beatmaps")
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
@@ -59,6 +59,11 @@ def _say(text):
     """打包成窗口程序后 sys.stdout 可能是 None，print 会炸。"""
     if sys.stdout:
         print(text)
+
+
+def _resource(name):
+    """打包后随包资源在 PyInstaller 的解包目录里。"""
+    return os.path.join(getattr(sys, "_MEIPASS", APP_DIR), name)
 
 
 def _json(url, data=None, headers=None, timeout=30):
@@ -257,6 +262,9 @@ class App(tk.Tk):
         self.title("osu! 谱面搜索下载器 v" + VERSION)
         self.geometry("1150x830")
         self.minsize(960, 620)
+        icon = _resource("icon.ico")
+        if os.path.exists(icon):
+            self.iconbitmap(icon)
         self.cfg = load_config()
         self.events = queue.Queue()
         self.row_widgets = {}
