@@ -29,7 +29,7 @@ import tkinter as tk
 # 打包成 exe 后 __file__ 指向 PyInstaller 的临时解包目录，配置和下载目录得跟着 exe 走
 APP_DIR = (os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False)
            else os.path.dirname(os.path.abspath(__file__)))
-VERSION = "1.0.5"
+VERSION = "1.0.6"
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 DEFAULT_SAVE_DIR = os.path.join(APP_DIR, "beatmaps")
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
@@ -53,6 +53,31 @@ RANGES = [("Stars", "stars", 0, 10), ("AR", "ar", 0, 10), ("OD", "od", 0, 10),
           ("Length", "length", 0, 1000)]
 
 MODE_NAME = {1: "STD", 2: "Taiko", 4: "CTD", 8: "Mania"}
+
+# 列表列：(行数据键, 表头, 字符宽, 排序取值函数)。表头点一下按该列排，再点一下反向。
+COLUMNS = [
+    ("title", "曲名", 34, lambda r: (r["artist"] + " " + r["title"]).lower()),
+    ("creator", "谱师", 12, lambda r: r["creator"].lower()),
+    ("modes", "模式", 11, lambda r: "/".join(MODE_NAME[b] for b in r["mode_bits"])),
+    ("stars", "Stars", 7, lambda r: r.get("stars")),
+    ("bpm", "BPM", 7, lambda r: r.get("bpm")),
+    ("length", "时长", 7, lambda r: r.get("length")),
+    ("plays", "播放量", 9, lambda r: r.get("plays")),
+    ("likes", "点赞", 7, lambda r: r.get("likes")),
+    ("status", "状态", 16, lambda r: r["status"]),
+]
+COLUMN_GET = {key: get for key, _text, _width, get in COLUMNS}
+
+
+def sort_rows(rows, key, desc=False):
+    """按某列排序，缺值（None，详情还没回来）永远排最后。"""
+    get = COLUMN_GET[key]
+    missing = [r for r in rows if get(r) is None]
+    return sorted((r for r in rows if get(r) is not None), key=get, reverse=desc) + missing
+
+
+def _count(value):
+    return "{:,}".format(int(value)) if value else "—"
 
 
 def _say(text):
@@ -95,7 +120,8 @@ def sayobot_row(item):
             "mode_bits": [bit for _name, bit in MODES if bitmask & bit],
             "status": {1: "ranked", 2: "qualified", 3: "qualified", 4: "loved",
                        -2: "graveyard", 0: "pending"}.get(item.get("approved"), "pending"),
-            "stars": None, "bpm": None, "length": None}
+            "stars": None, "bpm": None, "length": None,
+            "plays": item.get("play_count"), "likes": item.get("favourite_count")}
 
 
 def sayobot_search(keyword, sel, limit=25, offset=0):
@@ -269,6 +295,9 @@ class App(tk.Tk):
         self.events = queue.Queue()
         self.row_widgets = {}
         self.empty_label = None
+        self.rows = []
+        self.sort_key = None
+        self.sort_desc = False
         self.busy = False
         self.offset = 0
         self._build()
@@ -314,9 +343,12 @@ class App(tk.Tk):
 
         head = ttk.Frame(self, padding=(10, 8, 10, 0))
         head.pack(fill="x")
-        for text, width in (("曲名", 42), ("谱师", 16), ("模式", 12), ("Stars", 7),
-                            ("BPM", 7), ("时长", 7), ("状态", 20)):
-            ttk.Label(head, text=text, width=width).pack(side="left")
+        self.head_labels = {}
+        for key, text, width, _get in COLUMNS:
+            label = ttk.Label(head, text=text, width=width, anchor="w", cursor="hand2")
+            label.pack(side="left")
+            label.bind("<Button-1>", lambda _event, k=key: self.sort_by(k))
+            self.head_labels[key] = label
 
         body = ttk.Frame(self)
         body.pack(fill="both", expand=True, padx=10, pady=(0, 4))
@@ -477,6 +509,9 @@ class App(tk.Tk):
         for child in self.results.winfo_children():
             child.destroy()
         self.row_widgets.clear()
+        self.rows = []
+        self.sort_key, self.sort_desc = None, False
+        self._refresh_head()
         self._hide_empty()
         self.canvas.yview_moveto(0)
 
@@ -495,17 +530,38 @@ class App(tk.Tk):
 
     def _show(self, rows):
         self._hide_empty()
-        for row in rows:
+        self.rows.extend(rows)
+        self._render()
+
+    def sort_by(self, key):
+        if key == self.sort_key:
+            self.sort_desc = not self.sort_desc
+        else:
+            self.sort_key, self.sort_desc = key, False
+        self.rows = sort_rows(self.rows, key, self.sort_desc)
+        self._refresh_head()
+        self._render()
+
+    def _refresh_head(self):
+        for key, text, _width, _get in COLUMNS:
+            mark = ""
+            if key == self.sort_key:
+                mark = " ▼" if self.sort_desc else " ▲"
+            self.head_labels[key].config(text=text + mark)
+
+    def _render(self):
+        """按 self.rows 重建整个列表（新结果、排序都走这里）。"""
+        for child in self.results.winfo_children():
+            child.destroy()
+        self.row_widgets.clear()
+        for row in self.rows:
             line = ttk.Frame(self.results)
             line.pack(fill="x", pady=1)
             widgets = {}
-            widgets["title"] = ttk.Label(line, width=42, anchor="w",
-                                         text=("%s - %s" % (row["artist"], row["title"]))[:46])
-            widgets["title"].pack(side="left")
-            for key, width in (("creator", 16), ("modes", 12), ("stars", 7), ("bpm", 7),
-                               ("length", 7), ("status", 20)):
+            for key, _text, width, _get in COLUMNS:
                 widgets[key] = ttk.Label(line, text="—", width=width, anchor="w")
                 widgets[key].pack(side="left")
+            widgets["title"].config(text=("%s - %s" % (row["artist"], row["title"]))[:44])
             widgets["button"] = ttk.Button(line, text="下载",
                                            command=lambda r=row: self.download(r))
             widgets["button"].pack(side="right")
@@ -521,6 +577,8 @@ class App(tk.Tk):
         widgets["stars"].config(text="%.2f" % row["stars"] if row.get("stars") else "—")
         widgets["bpm"].config(text="%g" % row["bpm"] if row.get("bpm") else "—")
         widgets["length"].config(text=fmt_length(row.get("length")))
+        widgets["plays"].config(text=_count(row.get("plays")))
+        widgets["likes"].config(text=_count(row.get("likes")))
 
     # -------------------------------------------------- 下载
     def download(self, row):
@@ -570,6 +628,11 @@ def selftest():
     assert row["mode_bits"] == [1, 4], row["mode_bits"]
     assert row["status"] == "loved" and row["sid"] == 42
     assert sayobot_row({"sid": 1, "modes": 0, "approved": 99})["mode_bits"] == []
+
+    rows = [{"sid": 1, "stars": 3.0}, {"sid": 2, "stars": None}, {"sid": 3, "stars": 1.5}]
+    assert [r["sid"] for r in sort_rows(rows, "stars")] == [3, 1, 2]
+    assert [r["sid"] for r in sort_rows(rows, "stars", True)] == [1, 3, 2]
+    assert _count(191495) == "191,495" and _count(None) == "—"
 
     archive = tempfile.mkdtemp(prefix="osu_map_selftest_")
     try:
