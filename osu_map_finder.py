@@ -29,7 +29,7 @@ import tkinter as tk
 # 打包成 exe 后 __file__ 指向 PyInstaller 的临时解包目录，配置和下载目录得跟着 exe 走
 APP_DIR = (os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False)
            else os.path.dirname(os.path.abspath(__file__)))
-VERSION = "1.0.3"
+VERSION = "1.0.4"
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 DEFAULT_SAVE_DIR = os.path.join(APP_DIR, "beatmaps")
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
@@ -284,7 +284,7 @@ class App(tk.Tk):
         entry.pack(side="left", padx=6)
         entry.bind("<Return>", lambda _event: self.search())
         ttk.Button(top, text="获取当前播放", command=self._prefill).pack(side="left")
-        ttk.Button(top, text="搜索", command=self.search).pack(side="right")
+        ttk.Button(top, text="搜索", command=self.search).pack(side="left", padx=(6, 0))
 
         self.filters = ttk.LabelFrame(self, text="高级选项（全部勾选 = 不筛选）", padding=(10, 4))
         self.filters.pack(fill="x", padx=10)
