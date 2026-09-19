@@ -29,7 +29,7 @@ import tkinter as tk
 # 打包成 exe 后 __file__ 指向 PyInstaller 的临时解包目录，配置和下载目录得跟着 exe 走
 APP_DIR = (os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False)
            else os.path.dirname(os.path.abspath(__file__)))
-VERSION = "1.0.6"
+VERSION = "1.0.7"
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 DEFAULT_SAVE_DIR = os.path.join(APP_DIR, "beatmaps")
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
@@ -183,8 +183,12 @@ def safe_name(name):
 
 
 def download_map(row, save_dir, progress=None):
-    """下载 osz -> 改名 zip -> 解压到 save_dir\\<艺术家 - 曲名> -> 删掉 zip。"""
-    folder = os.path.join(save_dir, safe_name("%s - %s" % (row["artist"], row["title"])))
+    """下载 osz -> 改名 zip -> 解压到 save_dir\\<谱面集编号 艺术家 - 曲名> -> 删掉 zip。
+
+    文件夹名跟 osu! 客户端 Songs 目录一个格式（编号在最前），别的工具才认得出来。
+    """
+    folder = os.path.join(save_dir, safe_name("%d %s - %s" % (row["sid"], row["artist"],
+                                                              row["title"])))
     if os.path.exists(folder):
         return None, "已存在同名文件夹，跳过：" + os.path.basename(folder)
     tmp = tempfile.mkdtemp(prefix="osu_map_")
