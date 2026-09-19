@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import urllib.request
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
@@ -29,7 +30,7 @@ import tkinter as tk
 # 打包成 exe 后 __file__ 指向 PyInstaller 的临时解包目录，配置和下载目录得跟着 exe 走
 APP_DIR = (os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False)
            else os.path.dirname(os.path.abspath(__file__)))
-VERSION = "1.0.10"
+VERSION = "1.0.11"
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 DEFAULT_SAVE_DIR = os.path.join(APP_DIR, "beatmaps")
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
@@ -94,12 +95,28 @@ def _resource(name):
     return os.path.join(getattr(sys, "_MEIPASS", APP_DIR), name)
 
 
+def _retry(func, times=4, delay=1.5):
+    """Sayobot 时不时甩 503 / 断连（重试一下就好），4xx 是死的，直接抛。"""
+    for attempt in range(times):
+        try:
+            return func()
+        except Exception as exc:
+            dead = isinstance(exc, urllib.error.HTTPError) and exc.code < 500
+            if dead or attempt == times - 1:
+                raise
+            time.sleep(delay * (attempt + 1))
+
+
 def _json(url, data=None, headers=None, timeout=30):
     head = {"User-Agent": USER_AGENT}
     head.update(headers or {})
-    with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=head),
-                                timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8-sig"))
+
+    def once():
+        with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=head),
+                                    timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8-sig"))
+
+    return _retry(once)
 
 
 def sayobot_body(keyword, sel, limit=25, offset=0):
@@ -153,18 +170,21 @@ def sayobot_detail(sid):
 
 
 def fetch_file(url, path, progress=None):
-    with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": USER_AGENT}),
-                                timeout=120) as resp, open(path, "wb") as fh:
-        total = int(resp.headers.get("Content-Length") or 0)
-        done = 0
-        while True:
-            chunk = resp.read(1 << 16)
-            if not chunk:
-                break
-            fh.write(chunk)
-            done += len(chunk)
-            if progress and total:
-                progress(done * 100 // total)
+    def once():
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": USER_AGENT}),
+                                    timeout=120) as resp, open(path, "wb") as fh:
+            total = int(resp.headers.get("Content-Length") or 0)
+            done = 0
+            while True:
+                chunk = resp.read(1 << 16)
+                if not chunk:
+                    break
+                fh.write(chunk)
+                done += len(chunk)
+                if progress and total:
+                    progress(done * 100 // total)
+
+    _retry(once)          # 断在半路就整份重下，osz 本来也是覆盖式写完再改名
     return path
 
 
@@ -653,6 +673,21 @@ def selftest():
     assert [r["sid"] for r in sort_rows(rows, "stars")] == [3, 1, 2]
     assert [r["sid"] for r in sort_rows(rows, "stars", True)] == [1, 3, 2]
     assert _count(191495) == "191,495" and _count(None) == "—"
+
+    tries = []
+    def flaky():
+        tries.append(1)
+        if len(tries) < 3:
+            raise urllib.error.HTTPError("u", 503, "Service Unavailable", None, None)
+        return "ok"
+    assert _retry(flaky, delay=0.01) == "ok" and len(tries) == 3
+    def gone():
+        raise urllib.error.HTTPError("u", 404, "gone", None, None)
+    try:
+        _retry(gone, delay=0.01)
+        assert False, "404 属于死错误，不该重试"
+    except urllib.error.HTTPError:
+        pass
 
     archive = tempfile.mkdtemp(prefix="osu_map_selftest_")
     try:
