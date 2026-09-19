@@ -29,7 +29,7 @@ import tkinter as tk
 # 打包成 exe 后 __file__ 指向 PyInstaller 的临时解包目录，配置和下载目录得跟着 exe 走
 APP_DIR = (os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False)
            else os.path.dirname(os.path.abspath(__file__)))
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 DEFAULT_SAVE_DIR = os.path.join(APP_DIR, "beatmaps")
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
@@ -572,7 +572,22 @@ def selftest():
     _say("selftest OK")
 
 
+def _enable_dpi_awareness():
+    """不声明 DPI 感知时 Windows 会按缩放比例拉伸窗口：125% 下 1200x800 实测 1500x1000。"""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except Exception:
+            ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+
 def main(argv):
+    _enable_dpi_awareness()
     if "--selftest" in argv:
         selftest()
         return 0
