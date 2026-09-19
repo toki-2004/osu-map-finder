@@ -29,7 +29,7 @@ import tkinter as tk
 # 打包成 exe 后 __file__ 指向 PyInstaller 的临时解包目录，配置和下载目录得跟着 exe 走
 APP_DIR = (os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False)
            else os.path.dirname(os.path.abspath(__file__)))
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 DEFAULT_SAVE_DIR = os.path.join(APP_DIR, "beatmaps")
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
@@ -260,7 +260,7 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("osu! 谱面搜索下载器 v" + VERSION)
-        self.geometry("1150x830")
+        self.geometry("1200x800")
         self.minsize(960, 620)
         icon = _resource("icon.ico")
         if os.path.exists(icon):
