@@ -29,7 +29,7 @@ import tkinter as tk
 # 打包成 exe 后 __file__ 指向 PyInstaller 的临时解包目录，配置和下载目录得跟着 exe 走
 APP_DIR = (os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False)
            else os.path.dirname(os.path.abspath(__file__)))
-VERSION = "1.0.4"
+VERSION = "1.0.5"
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 DEFAULT_SAVE_DIR = os.path.join(APP_DIR, "beatmaps")
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
@@ -268,6 +268,7 @@ class App(tk.Tk):
         self.cfg = load_config()
         self.events = queue.Queue()
         self.row_widgets = {}
+        self.empty_label = None
         self.busy = False
         self.offset = 0
         self._build()
@@ -453,10 +454,12 @@ class App(tk.Tk):
         except Exception as exc:
             self.busy = False
             self.post(lambda: self._set_status("搜索失败：%s" % exc))
+            self.post(lambda: self._show_empty("搜索失败：%s" % exc))
             return
         if not rows:
             self.busy = False
             self.post(lambda: self._set_status("没有匹配的谱面"))
+            self.post(lambda: self._show_empty("没有匹配的谱面，换个关键词或放宽筛选试试"))
             return
         self.offset = offset + len(rows)
         self.post(lambda: self._show(rows))
@@ -474,9 +477,24 @@ class App(tk.Tk):
         for child in self.results.winfo_children():
             child.destroy()
         self.row_widgets.clear()
+        self._hide_empty()
         self.canvas.yview_moveto(0)
 
+    def _hide_empty(self):
+        if self.empty_label is not None:
+            self.empty_label.place_forget()
+
+    def _show_empty(self, text):
+        """没有结果时在列表区域正中提示，别让用户对着空白发呆。"""
+        if self.row_widgets:
+            return
+        if self.empty_label is None:
+            self.empty_label = ttk.Label(self.canvas, foreground="#888")
+        self.empty_label.config(text=text)
+        self.empty_label.place(relx=0.5, rely=0.5, anchor="center")
+
     def _show(self, rows):
+        self._hide_empty()
         for row in rows:
             line = ttk.Frame(self.results)
             line.pack(fill="x", pady=1)
