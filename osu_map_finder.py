@@ -29,7 +29,7 @@ import tkinter as tk
 # 打包成 exe 后 __file__ 指向 PyInstaller 的临时解包目录，配置和下载目录得跟着 exe 走
 APP_DIR = (os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False)
            else os.path.dirname(os.path.abspath(__file__)))
-VERSION = "1.0.9"
+VERSION = "1.0.10"
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 DEFAULT_SAVE_DIR = os.path.join(APP_DIR, "beatmaps")
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
@@ -43,6 +43,9 @@ MODES = [("STD", 1), ("Taiko", 2), ("CTD", 4), ("Mania", 8)]
 CLASSES = [("Ranked & Approved", 1), ("Qualified", 2), ("Loved", 4),
            ("Pending & WIP", 8), ("Graveyard", 16)]
 SUBTYPES = [("标题", 1), ("艺术家", 2), ("作图者", 4), ("难度", 8), ("标签", 16), ("提供方", 32)]
+# 默认只搜标题+艺术家：全选（63）时服务端会连标签/难度一起模糊匹配，搜 "Whistle" 能给你
+# 翻出一堆 Dove Flute、Android Twerk 这种八竿子打不着的谱面。
+SUBTYPE_DEFAULT = (1, 2)
 GENRES = [("any", 1), ("尚未指定", 2), ("电子游戏", 4), ("动漫", 8), ("摇滚", 16),
           ("流行乐", 32), ("其他", 64), ("新奇", 128), ("嘻哈", 256), ("电子", 1024)]
 LANGUAGES = [("any", 1), ("其他", 2), ("English", 4), ("Japanese", 8), ("中文", 16),
@@ -331,7 +334,8 @@ class App(tk.Tk):
         self.filters.pack(fill="x", padx=10)
         self.mode_vars = self._check_group(self.filters, "模式", MODES, 0)
         self.class_vars = self._check_group(self.filters, "状态", CLASSES, 1)
-        self.subtype_vars = self._check_group(self.filters, "范围", SUBTYPES, 2)
+        self.subtype_vars = self._check_group(self.filters, "范围", SUBTYPES, 2,
+                                              default=SUBTYPE_DEFAULT)
         self.genre_vars = self._check_group(self.filters, "分类", GENRES, 3)
         self.language_vars = self._check_group(self.filters, "语言", LANGUAGES, 4)
         ranges = ttk.Frame(self.filters)
@@ -386,13 +390,13 @@ class App(tk.Tk):
         ttk.Label(bottom, textvariable=self.status).pack(side="left", padx=12)
         ttk.Button(bottom, text="加载更多", command=self.load_more).pack(side="right")
 
-    def _check_group(self, parent, title, options, row):
+    def _check_group(self, parent, title, options, row, default=None):
         frame = ttk.Frame(parent)
         frame.grid(row=row, column=0, columnspan=3, sticky="w", pady=1)
         ttk.Label(frame, text=title, width=5).pack(side="left")
         variables = {}
         for name, bit in options:
-            var = tk.BooleanVar(value=True)
+            var = tk.BooleanVar(value=default is None or bit in default)
             ttk.Checkbutton(frame, text=name, variable=var).pack(side="left")
             variables[bit] = var
         return variables
